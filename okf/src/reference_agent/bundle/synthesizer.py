@@ -37,11 +37,9 @@ def synthesize_description(
     )
     prompt = _PROMPT_TEMPLATE.format(rel_path=rel_path, contents=contents)
     try:
-        from google import genai
+        from reference_agent.llm import generate_text
 
-        client = genai.Client()
-        response = client.models.generate_content(model=model, contents=prompt)
-        text = (getattr(response, "text", None) or "").strip()
+        text = generate_text(model, prompt).strip()
         if not text:
             return _fallback(children)
         return text.splitlines()[0].strip()

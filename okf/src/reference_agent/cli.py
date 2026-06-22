@@ -86,7 +86,11 @@ def _parser() -> argparse.ArgumentParser:
     enrich.add_argument(
         "--model",
         default=DEFAULT_MODEL,
-        help=f"Gemini model id (default: {DEFAULT_MODEL}).",
+        help="Model id (default: %(default)s). Bare Gemini ids are served "
+        "natively; provider-prefixed ids route through LiteLLM, e.g. a local "
+        "Ollama model: 'ollama_chat/qwen3-coder-next:q8_0' (override the "
+        "endpoint with OLLAMA_API_BASE; defaults to http://localhost:11434). "
+        "The OKF_MODEL env var sets the default.",
     )
     enrich.add_argument(
         "--web-seed",

@@ -13,6 +13,10 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.0",
     "markdownify>=0.11",
+    # Routes non-Gemini models (Ollama, OpenAI-compatible endpoints) through
+    # both the ADK agent (google.adk.models.lite_llm.LiteLlm) and the
+    # single-shot synthesizer path. See reference_agent/llm.py.
+    "litellm>=1.40",
 ]
 
 [project.optional-dependencies]
