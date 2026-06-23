@@ -9,7 +9,25 @@ from reference_agent.bundle.document import OKFDocument
 from reference_agent.bundle.synthesizer import synthesize_description
 
 _INDEX_FILE = "index.md"
+_HOME_FILE = "home.md"
 _FALLBACK_MODEL = "gemini-flash-latest"
+
+
+def write_wiki_home(bundle_root: Path) -> Path | None:
+    """Write a GitLab-wiki landing page (home.md) mirroring the bundle-root
+    index.md, so the bundle works as a wiki with no post-processing. Returns the
+    path written, or None when there is no root index.md to mirror.
+
+    Note: home.md carries no OKF frontmatter, so it is a wiki-export convenience
+    rather than an OKF concept document.
+    """
+    bundle_root = Path(bundle_root)
+    index = bundle_root / _INDEX_FILE
+    if not index.exists():
+        return None
+    home = bundle_root / _HOME_FILE
+    home.write_text(index.read_text(encoding="utf-8"), encoding="utf-8")
+    return home
 
 
 def _load_doc(path: Path) -> OKFDocument | None:

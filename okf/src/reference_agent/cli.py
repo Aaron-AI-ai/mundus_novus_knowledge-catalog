@@ -281,6 +281,15 @@ def _parser() -> argparse.ArgumentParser:
         "Example: --language Korean.",
     )
     enrich.add_argument(
+        "--wiki-home",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Write a GitLab-wiki landing page home.md (a copy of the root "
+        "index.md) so the bundle works as a wiki as-is (default: on; use "
+        "--no-wiki-home to skip). Note: home.md has no OKF frontmatter, so "
+        "strict OKF conformance checks will flag it.",
+    )
+    enrich.add_argument(
         "--no-web",
         action="store_true",
         help="Skip the web pass entirely.",
@@ -351,6 +360,7 @@ def main(argv: list[str] | None = None) -> int:
             language=args.language,
             embed_mode=args.embed_source,
             max_repair=args.max_repair,
+            wiki_home=args.wiki_home,
             verbose=args.verbose,
         )
         explicit = [parse_concept_id(c) for c in args.concept] if args.concept else []

@@ -92,3 +92,17 @@ def test_regenerate_single_child_reuses_description(tmp_path: Path):
     root_index = (root / "index.md").read_text(encoding="utf-8")
     assert "(datasets/index.md) - The only dataset in this bundle." in root_index
     assert call_count == 0
+
+
+def test_write_wiki_home_mirrors_root_index(tmp_path: Path):
+    from reference_agent.bundle.index import write_wiki_home
+
+    root = tmp_path / "bundle"
+    root.mkdir()
+    # No index yet -> nothing written.
+    assert write_wiki_home(root) is None
+
+    (root / "index.md").write_text("# A\n\n* [x](x.md) - y\n", encoding="utf-8")
+    home = write_wiki_home(root)
+    assert home is not None and home.name == "home.md"
+    assert home.read_text(encoding="utf-8") == (root / "index.md").read_text(encoding="utf-8")

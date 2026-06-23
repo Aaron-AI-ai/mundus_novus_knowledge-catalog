@@ -20,7 +20,7 @@ from reference_agent.agent import (
 )
 from reference_agent.bundle import source_state
 from reference_agent.bundle.code_embed import inject_code
-from reference_agent.bundle.index import regenerate_indexes
+from reference_agent.bundle.index import regenerate_indexes, write_wiki_home
 from reference_agent.bundle.paths import concept_id_to_path
 from reference_agent.repair import CONCEPT_PASS_CHECKS, corrective_message
 from reference_agent.sources.base import ConceptRef, Source
@@ -196,6 +196,7 @@ class ReferenceRunner:
         language: str = "English",
         embed_mode: str = "hybrid",
         max_repair: int = 2,
+        wiki_home: bool = True,
         verbose: bool = False,
     ):
         self.source = source
@@ -204,6 +205,7 @@ class ReferenceRunner:
         self.language = language or "English"
         self.embed_mode = embed_mode
         self.max_repair = max(0, int(max_repair))
+        self.wiki_home = wiki_home
         self.verbose = verbose
         self.bundle_root.mkdir(parents=True, exist_ok=True)
         set_context(self.source, self.bundle_root)
@@ -375,6 +377,11 @@ class ReferenceRunner:
 
         log.info("Regenerating index.md files in %s", self.bundle_root)
         regenerate_indexes(self.bundle_root, model=self.model, language=self.language)
+
+        if self.wiki_home:
+            home = write_wiki_home(self.bundle_root)
+            if home is not None:
+                log.info("Wrote GitLab-wiki landing page %s", home)
 
         # Record the source state of the concepts processed this run so a later
         # --since-last can detect what changed afterwards.
