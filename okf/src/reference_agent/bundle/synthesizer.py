@@ -13,8 +13,9 @@ Contents:
 {contents}
 
 Write one sentence that names what this directory collectively contains. Be \
-concrete and factual; do not editorialize. Output the sentence only — no \
-preamble, no quotes, no trailing punctuation beyond a single period.
+concrete and factual; do not editorialize. Write the sentence in {language}. \
+Output the sentence only — no preamble, no quotes, no trailing punctuation \
+beyond a single period.
 """
 
 
@@ -28,6 +29,7 @@ def synthesize_description(
     children: list[tuple[str, str]],
     *,
     model: str,
+    language: str = "English",
 ) -> str:
     if not children:
         return ""
@@ -35,7 +37,9 @@ def synthesize_description(
         f"- {title}: {desc}" if desc else f"- {title}"
         for title, desc in children
     )
-    prompt = _PROMPT_TEMPLATE.format(rel_path=rel_path, contents=contents)
+    prompt = _PROMPT_TEMPLATE.format(
+        rel_path=rel_path, contents=contents, language=language or "English"
+    )
     try:
         from reference_agent.llm import generate_text
 

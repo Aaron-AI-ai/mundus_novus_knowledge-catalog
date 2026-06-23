@@ -26,11 +26,29 @@ class WebState:
 
 _ctx: ToolContext | None = None
 _web: WebState | None = None
+_expected_concept: tuple[str, ...] | None = None
 
 
 def set_context(source: Source, bundle_root: Path) -> None:
     global _ctx
     _ctx = ToolContext(source=source, bundle_root=Path(bundle_root))
+
+
+def set_expected_concept(concept_id: tuple[str, ...] | None) -> None:
+    """Pin the single concept the current (non-web) session is allowed to
+    write. write_concept_doc rejects writes to any other id while a pin is
+    set, keeping a wandering model from documenting the wrong concept."""
+    global _expected_concept
+    _expected_concept = tuple(concept_id) if concept_id is not None else None
+
+
+def get_expected_concept() -> tuple[str, ...] | None:
+    return _expected_concept
+
+
+def clear_expected_concept() -> None:
+    global _expected_concept
+    _expected_concept = None
 
 
 def get_context() -> ToolContext:

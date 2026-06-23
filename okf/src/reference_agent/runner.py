@@ -11,12 +11,19 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from reference_agent.agent import DEFAULT_MODEL, build_bq_agent, build_web_agent
+from reference_agent.agent import (
+    DEFAULT_MODEL,
+    build_bq_agent,
+    build_code_agent,
+    build_web_agent,
+)
 from reference_agent.bundle.index import regenerate_indexes
 from reference_agent.sources.base import ConceptRef, Source
 from reference_agent.tools.context import (
+    clear_expected_concept,
     clear_web_state,
     set_context,
+    set_expected_concept,
     set_web_state,
 )
 
@@ -164,11 +171,13 @@ class ReferenceRunner:
         web_allowed_path_prefixes: list[str] | None = None,
         web_denied_path_substrings: list[str] | None = None,
         web_max_depth: int = 2,
+        language: str = "English",
         verbose: bool = False,
     ):
         self.source = source
         self.bundle_root = Path(bundle_root)
         self.model = model
+        self.language = language or "English"
         self.verbose = verbose
         self.bundle_root.mkdir(parents=True, exist_ok=True)
         set_context(self.source, self.bundle_root)
@@ -185,7 +194,11 @@ class ReferenceRunner:
                 urlparse(s).netloc for s in self.web_seeds if urlparse(s).netloc
             }
 
-        self._bq_agent = build_bq_agent(model=model)
+        # The concept (non-web) pass uses a source-appropriate agent: the
+        # BigQuery instruction for the bq source, the code instruction for a
+        # local source tree. Both drive the same generic source/bundle tools.
+        builder = build_code_agent if getattr(source, "name", "") == "code" else build_bq_agent
+        self._bq_agent = builder(model=model, language=self.language)
         self._bq_session_service = InMemorySessionService()
         self._bq_runner = Runner(
             agent=self._bq_agent,
@@ -195,7 +208,7 @@ class ReferenceRunner:
 
         self._web_runner: Runner | None = None
         if self.web_seeds:
-            self._web_agent = build_web_agent(model=model)
+            self._web_agent = build_web_agent(model=model, language=self.language)
             self._web_session_service = InMemorySessionService()
             self._web_runner = Runner(
                 agent=self._web_agent,
@@ -209,10 +222,14 @@ class ReferenceRunner:
             app_name=_BQ_APP_NAME, user_id=_USER_ID, session_id=session_id
         )
         message = _build_bq_user_message(ref)
-        for event in self._bq_runner.run(
-            user_id=_USER_ID, session_id=session_id, new_message=message
-        ):
-            _log_event_parts(event, ref.id_str, verbose=self.verbose)
+        set_expected_concept(ref.id)
+        try:
+            for event in self._bq_runner.run(
+                user_id=_USER_ID, session_id=session_id, new_message=message
+            ):
+                _log_event_parts(event, ref.id_str, verbose=self.verbose)
+        finally:
+            clear_expected_concept()
 
     def run_web_pass(self) -> None:
         if not self._web_runner or not self.web_seeds:
@@ -276,5 +293,5 @@ class ReferenceRunner:
         self.run_web_pass()
 
         log.info("Regenerating index.md files in %s", self.bundle_root)
-        regenerate_indexes(self.bundle_root, model=self.model)
+        regenerate_indexes(self.bundle_root, model=self.model, language=self.language)
         return count

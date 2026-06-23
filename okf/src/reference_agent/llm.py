@@ -10,6 +10,13 @@ log = logging.getLogger(__name__)
 # common "Ollama on localhost" case works with no extra configuration.
 _DEFAULT_OLLAMA_API_BASE = "http://localhost:11434"
 
+# Ollama models often ship with a small default context window (e.g. 8192).
+# The enrichment agent accumulates instruction + source + tool results in a
+# single conversation, which overflows that easily and makes the model loop.
+# We request a larger window via the Ollama `num_ctx` option; override with
+# OLLAMA_NUM_CTX. VRAM impact is modest on unified-memory machines.
+_DEFAULT_OLLAMA_NUM_CTX = 16384
+
 
 def is_litellm_model(model: str) -> bool:
     """Return True for provider-prefixed model ids that must be routed
@@ -26,15 +33,33 @@ def is_litellm_model(model: str) -> bool:
     return "/" in model and not model.startswith("gemini")
 
 
+def _is_ollama(model: str) -> bool:
+    return model.split("/", 1)[0] in ("ollama", "ollama_chat")
+
+
 def _ollama_api_base(model: str) -> str | None:
     """Resolve the Ollama base URL for an ``ollama``/``ollama_chat`` model.
 
     Returns None for non-Ollama providers (LiteLLM resolves those itself).
     """
-    provider = model.split("/", 1)[0]
-    if provider in ("ollama", "ollama_chat"):
+    if _is_ollama(model):
         return os.environ.get("OLLAMA_API_BASE") or _DEFAULT_OLLAMA_API_BASE
     return None
+
+
+def _ollama_kwargs(model: str) -> dict[str, object]:
+    """Per-call kwargs (api_base, num_ctx) for an Ollama model; empty dict for
+    any other provider."""
+    if not _is_ollama(model):
+        return {}
+    kwargs: dict[str, object] = {"api_base": _ollama_api_base(model)}
+    try:
+        num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", _DEFAULT_OLLAMA_NUM_CTX))
+    except ValueError:
+        num_ctx = _DEFAULT_OLLAMA_NUM_CTX
+    if num_ctx > 0:
+        kwargs["num_ctx"] = num_ctx
+    return kwargs
 
 
 def resolve_agent_model(model: str):
@@ -49,10 +74,7 @@ def resolve_agent_model(model: str):
 
     from google.adk.models.lite_llm import LiteLlm
 
-    kwargs: dict[str, str] = {}
-    api_base = _ollama_api_base(model)
-    if api_base:
-        kwargs["api_base"] = api_base
+    kwargs = _ollama_kwargs(model)
     log.debug("Routing model %s through LiteLlm (kwargs=%s)", model, kwargs)
     return LiteLlm(model=model, **kwargs)
 
@@ -68,14 +90,10 @@ def generate_text(model: str, prompt: str) -> str:
     if is_litellm_model(model):
         import litellm
 
-        kwargs: dict[str, str] = {}
-        api_base = _ollama_api_base(model)
-        if api_base:
-            kwargs["api_base"] = api_base
         resp = litellm.completion(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            **kwargs,
+            **_ollama_kwargs(model),
         )
         return (resp["choices"][0]["message"]["content"] or "").strip()
 

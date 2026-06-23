@@ -10,8 +10,9 @@ from reference_agent.agent import DEFAULT_MODEL
 from reference_agent.bundle.paths import parse_concept_id
 from reference_agent.runner import ReferenceRunner
 from reference_agent.sources.bigquery import BigQuerySource
+from reference_agent.sources.code import CodeSource
 
-_SOURCES = ("bq",)
+_SOURCES = ("bq", "code")
 
 
 def _build_source(name: str, args: argparse.Namespace):
@@ -21,6 +22,10 @@ def _build_source(name: str, args: argparse.Namespace):
         return BigQuerySource(
             dataset=args.dataset, billing_project=args.billing_project
         )
+    if name == "code":
+        if not args.path:
+            raise SystemExit("--path is required for --source code")
+        return CodeSource(root=args.path, include_tests=args.include_tests)
     raise SystemExit(f"Unknown source: {name}")
 
 
@@ -67,6 +72,17 @@ def _parser() -> argparse.ArgumentParser:
     enrich.add_argument(
         "--dataset",
         help="Source-specific identifier (for --source bq: 'project.dataset').",
+    )
+    enrich.add_argument(
+        "--path",
+        type=Path,
+        help="Root directory of the source tree (required for --source code).",
+    )
+    enrich.add_argument(
+        "--include-tests",
+        action="store_true",
+        help="For --source code: also document files under test/ directories "
+        "(default: skip tests).",
     )
     enrich.add_argument(
         "--billing-project",
@@ -140,6 +156,14 @@ def _parser() -> argparse.ArgumentParser:
         "Seeds are depth 0; their outbound links are depth 1; etc.",
     )
     enrich.add_argument(
+        "--language",
+        default="English",
+        help="Natural language for generated prose — the description field, "
+        "document body, section headings, and index.md summaries (default: "
+        "%(default)s). Code identifiers, type names, and tags stay as-is. "
+        "Example: --language Korean.",
+    )
+    enrich.add_argument(
         "--no-web",
         action="store_true",
         help="Skip the web pass entirely.",
@@ -207,6 +231,7 @@ def main(argv: list[str] | None = None) -> int:
             web_allowed_path_prefixes=args.web_allowed_path_prefix,
             web_denied_path_substrings=args.web_denied_path_substring,
             web_max_depth=args.web_max_depth,
+            language=args.language,
             verbose=args.verbose,
         )
         only = (

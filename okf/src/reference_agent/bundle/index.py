@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from functools import partial
 from pathlib import Path
 from typing import Callable
 
@@ -51,11 +52,18 @@ def regenerate_indexes(
     *,
     model: str = _FALLBACK_MODEL,
     synthesize: Callable[..., str] = synthesize_description,
+    language: str = "English",
 ) -> list[Path]:
     bundle_root = Path(bundle_root)
     written: list[Path] = []
     if not bundle_root.exists():
         return written
+
+    # Only bind `language` into the synthesizer when it is non-default, so
+    # callers passing a stub synthesize() with no `language` parameter (and
+    # the English default) keep working exactly as before.
+    if language and language.strip().lower() != "english":
+        synthesize = partial(synthesize, language=language)
 
     directories = sorted(
         _directories_to_index(bundle_root),

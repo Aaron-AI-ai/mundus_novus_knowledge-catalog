@@ -10,7 +10,11 @@ from reference_agent.bundle.document import (
     OKFDocumentError,
 )
 from reference_agent.bundle.paths import concept_id_to_path, parse_concept_id
-from reference_agent.tools.context import get_context, is_web_pass
+from reference_agent.tools.context import (
+    get_context,
+    get_expected_concept,
+    is_web_pass,
+)
 
 _PREFERRED_KEY_ORDER = ("type", "resource", "title", "description", "tags", "timestamp")
 
@@ -87,6 +91,22 @@ def write_concept_doc(
     """
     ctx = get_context()
     cid = parse_concept_id(concept_id)
+
+    # Pinned-concept guard: each non-web session may only write the concept it
+    # was asked to enrich. A model that wandered into a different id is told to
+    # correct the call rather than silently mislabeling the bundle.
+    expected = get_expected_concept()
+    if expected is not None and cid != expected:
+        expected_str = "/".join(expected)
+        return {
+            "error": (
+                f"Refusing to write '{concept_id}': this session must document "
+                f"only the concept '{expected_str}'. Re-call write_concept_doc "
+                f"with concept_id='{expected_str}'."
+            ),
+            "concept_id": concept_id,
+        }
+
     path = concept_id_to_path(ctx.bundle_root, cid)
 
     fm = dict(frontmatter)
