@@ -40,6 +40,38 @@ _KIND_TO_TYPE = {
 _SKIP_DIR_PARTS = {".git", "build", "target", "out", "bin", "node_modules", ".gradle"}
 _MAX_SOURCE_CHARS = 12_000
 
+# Gradle coordinate detection (best-effort, for the `artifact` frontmatter).
+_GRADLE_GROUP_RE = re.compile(r"""^\s*group\s*=?\s*['"]([\w.\-]+)['"]""", re.MULTILINE)
+_GRADLE_VERSION_RE = re.compile(r"""^\s*version\s*=?\s*['"]([\w.\-]+)['"]""", re.MULTILINE)
+_GRADLE_ROOTNAME_RE = re.compile(
+    r"""rootProject\.name\s*=\s*['"]([\w.\-]+)['"]"""
+)
+
+
+def _detect_artifact(root: Path) -> str | None:
+    """Best-effort Maven/Gradle coordinate (group:artifact:version) read from
+    build.gradle + settings.gradle at the source root. Returns None if not
+    determinable."""
+    build = root / "build.gradle"
+    settings = root / "settings.gradle"
+    group = version = name = None
+    if build.is_file():
+        text = build.read_text(encoding="utf-8", errors="replace")
+        gm = _GRADLE_GROUP_RE.search(text)
+        vm = _GRADLE_VERSION_RE.search(text)
+        group = gm.group(1) if gm else None
+        version = vm.group(1) if vm else None
+    if settings.is_file():
+        nm = _GRADLE_ROOTNAME_RE.search(
+            settings.read_text(encoding="utf-8", errors="replace")
+        )
+        name = nm.group(1) if nm else None
+    if not name:
+        name = root.name
+    if group and name and version:
+        return f"{group}:{name}:{version}"
+    return None
+
 
 def _segment(s: str) -> str:
     """Coerce an arbitrary path/identifier fragment into a valid concept-id
@@ -81,14 +113,30 @@ class CodeSource(Source):
         *,
         include_tests: bool = False,
         repo_name: str | None = None,
+        artifact: str | None = None,
     ):
         self.root = Path(root).resolve()
         if not self.root.is_dir():
             raise ValueError(f"--path is not a directory: {self.root}")
         self.include_tests = include_tests
         self.repo_name = repo_name or self.root.name
+        self.artifact = artifact or _detect_artifact(self.root)
         self._concepts_cache: list[ConceptRef] | None = None
         self._by_id: dict[tuple[str, ...], Path] = {}
+
+    def source_path(self, ref: ConceptRef) -> Path:
+        """Absolute path to the source file backing a concept."""
+        return self._path_for(ref)
+
+    def full_source(self, ref: ConceptRef) -> str:
+        """Complete (untruncated) source text for a concept's file."""
+        return self._path_for(ref).read_text(encoding="utf-8", errors="replace")
+
+    def fqcn(self, ref: ConceptRef) -> str:
+        """Fully-qualified class name: package + simple class name."""
+        pkg = ref.hint.get("package") or ""
+        name = ref.hint.get("class_name") or ref.id[-1]
+        return f"{pkg}.{name}" if pkg else name
 
     # -- discovery ---------------------------------------------------------
 

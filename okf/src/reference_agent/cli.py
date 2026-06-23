@@ -25,7 +25,11 @@ def _build_source(name: str, args: argparse.Namespace):
     if name == "code":
         if not args.path:
             raise SystemExit("--path is required for --source code")
-        return CodeSource(root=args.path, include_tests=args.include_tests)
+        return CodeSource(
+            root=args.path,
+            include_tests=args.include_tests,
+            artifact=args.artifact,
+        )
     raise SystemExit(f"Unknown source: {name}")
 
 
@@ -83,6 +87,22 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="For --source code: also document files under test/ directories "
         "(default: skip tests).",
+    )
+    enrich.add_argument(
+        "--artifact",
+        help="For --source code: dependency coordinate written into each doc "
+        "as 'artifact' (e.g. 'group:name:version'). Auto-detected from "
+        "build.gradle/settings.gradle when omitted.",
+    )
+    enrich.add_argument(
+        "--embed-source",
+        choices=("hybrid", "full", "signatures", "none"),
+        default="hybrid",
+        help="For --source code: how much verbatim code to embed in each doc "
+        "so it is self-contained without repo access. 'hybrid' (default) = "
+        "full public API signatures + full source for small files / truncated "
+        "for large; 'full' = whole source; 'signatures' = API only; 'none' = "
+        "no embedding.",
     )
     enrich.add_argument(
         "--billing-project",
@@ -232,6 +252,7 @@ def main(argv: list[str] | None = None) -> int:
             web_denied_path_substrings=args.web_denied_path_substring,
             web_max_depth=args.web_max_depth,
             language=args.language,
+            embed_mode=args.embed_source,
             verbose=args.verbose,
         )
         only = (

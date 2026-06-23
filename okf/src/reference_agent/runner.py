@@ -17,7 +17,9 @@ from reference_agent.agent import (
     build_code_agent,
     build_web_agent,
 )
+from reference_agent.bundle.code_embed import inject_code
 from reference_agent.bundle.index import regenerate_indexes
+from reference_agent.bundle.paths import concept_id_to_path
 from reference_agent.sources.base import ConceptRef, Source
 from reference_agent.tools.context import (
     clear_expected_concept,
@@ -172,12 +174,14 @@ class ReferenceRunner:
         web_denied_path_substrings: list[str] | None = None,
         web_max_depth: int = 2,
         language: str = "English",
+        embed_mode: str = "hybrid",
         verbose: bool = False,
     ):
         self.source = source
         self.bundle_root = Path(bundle_root)
         self.model = model
         self.language = language or "English"
+        self.embed_mode = embed_mode
         self.verbose = verbose
         self.bundle_root.mkdir(parents=True, exist_ok=True)
         set_context(self.source, self.bundle_root)
@@ -273,6 +277,29 @@ class ReferenceRunner:
         finally:
             clear_web_state()
 
+    def _maybe_embed_code(self, ref) -> None:
+        """For the code source: append the verbatim API/source block and set
+        coordinate frontmatter on the doc the agent just wrote."""
+        if getattr(self.source, "name", "") != "code":
+            return
+        if self.embed_mode == "none":
+            return
+        path = concept_id_to_path(self.bundle_root, ref.id)
+        if not path.exists():
+            return
+        try:
+            inject_code(
+                path,
+                fqcn=self.source.fqcn(ref),
+                artifact=getattr(self.source, "artifact", None),
+                full_source=self.source.full_source(ref),
+                class_name=ref.hint.get("class_name") or ref.id[-1],
+                mode=self.embed_mode,
+                language=self.language,
+            )
+        except Exception as e:  # embedding must never abort the run
+            log.warning("code embed failed for %s: %s", ref.id_str, e)
+
     def enrich_all(self, only: list[tuple[str, ...]] | None = None) -> int:
         concepts = self.source.list_concepts()
         if only is not None:
@@ -288,6 +315,7 @@ class ReferenceRunner:
         for ref in concepts:
             log.info("Enriching %s (%s)", ref.id_str, ref.type)
             self.enrich_concept(ref)
+            self._maybe_embed_code(ref)
             count += 1
 
         self.run_web_pass()

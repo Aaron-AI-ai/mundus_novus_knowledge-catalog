@@ -28,13 +28,20 @@ Never write a document for a different concept id.
 - `title`: the simple class name (e.g. `StringUtils`).
 - `description`: **one sentence** explaining the unit's responsibility. Used
   verbatim in auto-generated `index.md` files, so keep it tight.
-- `resource`: the repo-relative file path from the metadata (`path`).
 - `tags` (recommended): a YAML list of useful search tags inferred from the
   package, framework role, and key dependencies (e.g. `[kafka, config,
   spring]`).
 - `timestamp`: leave unset; the tool fills in the current UTC time.
 
+Do NOT set `resource`, `fqcn`, or `artifact` — the pipeline fills in the
+dependency coordinate and fully-qualified class name automatically.
+
 ## Body sections
+
+Write **prose only** — explanation, not code. The pipeline appends an
+authoritative `# API` section (verbatim signatures) and the source code after
+your body, so **do not paste method bodies or large code blocks yourself**;
+short inline references like `send(...)` are fine.
 
 In this order, omitting any that do not apply:
 
@@ -42,15 +49,14 @@ In this order, omitting any that do not apply:
    for, where it sits in the framework (use the package), and how it is
    typically used by callers. Be concrete; name the real methods and fields.
 2. `# Responsibilities` — a bullet list of the concrete things this unit does.
-3. `# Key API` — the important public methods/constants, each with a one-line
-   explanation. Format signatures in inline code. Do not dump every method;
-   pick the ones a caller needs.
-4. `# Dependencies` — notable collaborators: framework/base types it extends or
+3. `# Usage` — how a *consumer* uses it: the `import` statement, and a short
+   illustrative call. Describe behavior; keep any snippet to a few lines.
+4. `# Key API` — the important public methods/constants, each with a one-line
+   explanation in prose. Do not reproduce full signatures (the `# API` section
+   does that); name the method and say what it is for.
+5. `# Dependencies` — notable collaborators: framework/base types it extends or
    implements, other concepts in this bundle it uses, and significant external
    libraries (Spring, Kafka, MyBatis, etc.) from the imports.
-5. `# Citations` — use the OKF format, with this unit's source file first:
-
-       [1] [path/to/File.java](<resource path>)
 
 ## Cross-linking
 
