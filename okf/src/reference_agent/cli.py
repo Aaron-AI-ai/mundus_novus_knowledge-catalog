@@ -176,6 +176,14 @@ def _parser() -> argparse.ArgumentParser:
         "Seeds are depth 0; their outbound links are depth 1; etc.",
     )
     enrich.add_argument(
+        "--max-repair",
+        type=int,
+        default=2,
+        help="Self-heal attempts per concept: if the agent finishes without "
+        "calling a required tool (e.g. write_concept_doc), re-prompt in the "
+        "same session up to this many times (default 2; 0 disables).",
+    )
+    enrich.add_argument(
         "--language",
         default="English",
         help="Natural language for generated prose — the description field, "
@@ -253,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
             web_max_depth=args.web_max_depth,
             language=args.language,
             embed_mode=args.embed_source,
+            max_repair=args.max_repair,
             verbose=args.verbose,
         )
         only = (

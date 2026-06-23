@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections import Counter
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -20,6 +21,7 @@ from reference_agent.agent import (
 from reference_agent.bundle.code_embed import inject_code
 from reference_agent.bundle.index import regenerate_indexes
 from reference_agent.bundle.paths import concept_id_to_path
+from reference_agent.repair import CONCEPT_PASS_CHECKS, corrective_message
 from reference_agent.sources.base import ConceptRef, Source
 from reference_agent.tools.context import (
     clear_expected_concept,
@@ -119,6 +121,23 @@ def _log_event_parts(event, prefix: str, *, verbose: bool) -> str | None:
     return last_text
 
 
+def _tool_call_names(event) -> list[str]:
+    """Names of tools the model actually invoked in this event (function_call
+    parts only — not function_response or text)."""
+    if not event.content or not event.content.parts:
+        return []
+    names: list[str] = []
+    for part in event.content.parts:
+        fc = getattr(part, "function_call", None)
+        if fc and getattr(fc, "name", None):
+            names.append(fc.name)
+    return names
+
+
+def _user_text(text: str) -> types.Content:
+    return types.Content(role="user", parts=[types.Part(text=text)])
+
+
 def _build_bq_user_message(ref: ConceptRef) -> types.Content:
     text = (
         f"Enrich the concept with id: {ref.id_str}\n"
@@ -175,6 +194,7 @@ class ReferenceRunner:
         web_max_depth: int = 2,
         language: str = "English",
         embed_mode: str = "hybrid",
+        max_repair: int = 2,
         verbose: bool = False,
     ):
         self.source = source
@@ -182,6 +202,7 @@ class ReferenceRunner:
         self.model = model
         self.language = language or "English"
         self.embed_mode = embed_mode
+        self.max_repair = max(0, int(max_repair))
         self.verbose = verbose
         self.bundle_root.mkdir(parents=True, exist_ok=True)
         set_context(self.source, self.bundle_root)
@@ -220,18 +241,49 @@ class ReferenceRunner:
                 session_service=self._web_session_service,
             )
 
+    def _run_turn(self, session_id: str, message, prefix: str) -> Counter:
+        """Run one model turn (which may span several tool calls) and return a
+        Counter of the tool names the model actually invoked."""
+        counts: Counter = Counter()
+        for event in self._bq_runner.run(
+            user_id=_USER_ID, session_id=session_id, new_message=message
+        ):
+            for name in _tool_call_names(event):
+                counts[name] += 1
+            _log_event_parts(event, prefix, verbose=self.verbose)
+        return counts
+
     def enrich_concept(self, ref: ConceptRef) -> None:
         session_id = f"enrich-{uuid.uuid4().hex[:12]}"
         self._bq_session_service.create_session_sync(
             app_name=_BQ_APP_NAME, user_id=_USER_ID, session_id=session_id
         )
-        message = _build_bq_user_message(ref)
         set_expected_concept(ref.id)
         try:
-            for event in self._bq_runner.run(
-                user_id=_USER_ID, session_id=session_id, new_message=message
-            ):
-                _log_event_parts(event, ref.id_str, verbose=self.verbose)
+            # Initial turn, then self-heal: if a required tool call (e.g.
+            # write_concept_doc) is missing, re-prompt in the SAME session so
+            # the model keeps its accumulated context and only corrects its
+            # behavior. The checklist is extensible — see repair.py.
+            counts = self._run_turn(
+                session_id, _build_bq_user_message(ref), ref.id_str
+            )
+            for attempt in range(1, self.max_repair + 1):
+                msg = corrective_message(
+                    CONCEPT_PASS_CHECKS, counts, concept_id=ref.id_str
+                )
+                if msg is None:
+                    break
+                log.info(
+                    "[%s] repair attempt %d/%d: required tool call missing",
+                    ref.id_str, attempt, self.max_repair,
+                )
+                counts.update(self._run_turn(session_id, _user_text(msg), ref.id_str))
+            else:
+                if corrective_message(CONCEPT_PASS_CHECKS, counts, concept_id=ref.id_str):
+                    log.warning(
+                        "[%s] still missing a required tool call after %d repair "
+                        "attempt(s)", ref.id_str, self.max_repair,
+                    )
         finally:
             clear_expected_concept()
 
