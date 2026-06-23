@@ -138,6 +138,18 @@ class CodeSource(Source):
         name = ref.hint.get("class_name") or ref.id[-1]
         return f"{pkg}.{name}" if pkg else name
 
+    def find_by_path(self, path: str | Path) -> ConceptRef | None:
+        """Return the concept backed by the given source file, or None if the
+        path is not a documented source file (e.g. a deleted file, a test file
+        while tests are excluded, or a non-Java file)."""
+        self.list_concepts()
+        target = Path(path).resolve()
+        for ref in self._concepts_cache or []:
+            backing = self._by_id.get(ref.id)
+            if backing is not None and backing.resolve() == target:
+                return ref
+        return None
+
     # -- discovery ---------------------------------------------------------
 
     def _iter_java_files(self) -> list[Path]:

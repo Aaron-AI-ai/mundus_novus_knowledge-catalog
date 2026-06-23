@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -13,6 +14,76 @@ from reference_agent.sources.bigquery import BigQuerySource
 from reference_agent.sources.code import CodeSource
 
 _SOURCES = ("bq", "code")
+
+
+def _git_changed_java(root: Path, ref: str) -> list[Path]:
+    """Absolute paths of *.java files changed since `ref` (committed or working
+    tree) plus untracked new ones, in the git repo containing `root`."""
+    root = Path(root)
+    top = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True,
+    )
+    if top.returncode != 0:
+        raise SystemExit(f"--changed-since: {root} is not inside a git repo")
+    toplevel = Path(top.stdout.strip())
+
+    diff = subprocess.run(
+        ["git", "-C", str(root), "diff", "--name-only", ref, "--", "*.java"],
+        capture_output=True, text=True,
+    )
+    if diff.returncode != 0:
+        raise SystemExit(
+            f"--changed-since: git diff against '{ref}' failed: "
+            f"{diff.stderr.strip()}"
+        )
+    lines = list(diff.stdout.splitlines())
+
+    untracked = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--others", "--exclude-standard",
+         "--", "*.java"],
+        capture_output=True, text=True,
+    )
+    if untracked.returncode == 0:
+        lines += untracked.stdout.splitlines()
+
+    seen: set[str] = set()
+    out: list[Path] = []
+    for line in lines:
+        line = line.strip()
+        if line and line not in seen:
+            seen.add(line)
+            out.append(toplevel / line)
+    return out
+
+
+def _changed_concept_ids(source, root: Path, ref: str) -> list[tuple[str, ...]]:
+    """Map git-changed .java files to concept ids, logging files that don't
+    correspond to a documented concept (deleted, test-only, etc.)."""
+    files = _git_changed_java(root, ref)
+    ids: list[tuple[str, ...]] = []
+    skipped: list[str] = []
+    for f in files:
+        cref = source.find_by_path(f)
+        if cref is not None:
+            ids.append(cref.id)
+        else:
+            skipped.append(str(f))
+    log = logging.getLogger("reference_agent")
+    log.info(
+        "Changed since %s: %d .java file(s), %d mapped to concepts, %d skipped",
+        ref, len(files), len(ids), len(skipped),
+    )
+    for s in skipped:
+        log.info("  skipped (no concept; deleted/test/non-doc): %s", s)
+    # De-dup while preserving order.
+    seen: set[tuple[str, ...]] = set()
+    uniq: list[tuple[str, ...]] = []
+    for i in ids:
+        if i not in seen:
+            seen.add(i)
+            uniq.append(i)
+    return uniq
 
 
 def _build_source(name: str, args: argparse.Namespace):
@@ -118,6 +189,24 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="Enrich only this concept id (e.g. 'tables/events_'). "
         "Repeatable.",
+    )
+    enrich.add_argument(
+        "--changed-since",
+        metavar="GIT_REF",
+        default=None,
+        help="For --source code: enrich only concepts whose .java file changed "
+        "since GIT_REF (git diff in the --path repo, including uncommitted and "
+        "untracked files). Combine with --concept to add more. Examples: "
+        "'HEAD' (uncommitted), 'HEAD~1', 'main', a tag.",
+    )
+    enrich.add_argument(
+        "--since-last",
+        action="store_true",
+        help="For --source code: enrich only concepts whose source changed "
+        "since the last run, using the bundle's recorded source-state manifest "
+        "(<out>/.okf-source.json) — git-independent (catches uncommitted edits) "
+        "and self-updating. On the first run (no manifest) this enriches "
+        "everything.",
     )
     enrich.add_argument(
         "--model",
@@ -264,9 +353,44 @@ def main(argv: list[str] | None = None) -> int:
             max_repair=args.max_repair,
             verbose=args.verbose,
         )
-        only = (
-            [parse_concept_id(c) for c in args.concept] if args.concept else None
-        )
+        explicit = [parse_concept_id(c) for c in args.concept] if args.concept else []
+        selective = bool(args.changed_since or args.since_last or explicit)
+        only: list[tuple[str, ...]] | None
+        if selective:
+            if (args.changed_since or args.since_last) and args.source != "code":
+                raise SystemExit(
+                    "--changed-since/--since-last are only valid for --source code"
+                )
+            picked: list[tuple[str, ...]] = list(explicit)
+            if args.changed_since:
+                picked += _changed_concept_ids(source, Path(args.path), args.changed_since)
+            if args.since_last:
+                from reference_agent.bundle import source_state
+                changed, deleted = source_state.changed_concepts(source, args.out)
+                picked += changed
+                logging.getLogger("reference_agent").info(
+                    "Since last run: %d changed concept(s)%s",
+                    len(changed),
+                    f", {len(deleted)} source file(s) deleted" if deleted else "",
+                )
+                for d in deleted:
+                    logging.getLogger("reference_agent").info(
+                        "  deleted source (doc kept): %s", "/".join(d)
+                    )
+            # De-dup, preserving order.
+            seen: set[tuple[str, ...]] = set()
+            only = []
+            for cid in picked:
+                if cid not in seen:
+                    seen.add(cid)
+                    only.append(cid)
+            if not only:
+                print(
+                    "No concepts to update (nothing changed).", file=sys.stderr
+                )
+                return 0
+        else:
+            only = None
         n = runner.enrich_all(only=only)
         web_note = f"; web pass used {len(seeds)} seed(s)" if seeds else "; web pass skipped"
         print(f"Enriched {n} concept(s) into {args.out}{web_note}", file=sys.stderr)

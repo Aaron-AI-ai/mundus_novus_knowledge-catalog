@@ -18,6 +18,7 @@ from reference_agent.agent import (
     build_code_agent,
     build_web_agent,
 )
+from reference_agent.bundle import source_state
 from reference_agent.bundle.code_embed import inject_code
 from reference_agent.bundle.index import regenerate_indexes
 from reference_agent.bundle.paths import concept_id_to_path
@@ -374,4 +375,11 @@ class ReferenceRunner:
 
         log.info("Regenerating index.md files in %s", self.bundle_root)
         regenerate_indexes(self.bundle_root, model=self.model, language=self.language)
+
+        # Record the source state of the concepts processed this run so a later
+        # --since-last can detect what changed afterwards.
+        if getattr(self.source, "name", "") == "code":
+            source_state.record_after_run(
+                self.source, self.bundle_root, [c.id for c in concepts]
+            )
         return count

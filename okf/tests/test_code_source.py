@@ -57,6 +57,16 @@ def test_list_concepts_ids_types_and_artifact(tmp_path: Path):
     assert src.fqcn(by_id["utils/StringUtils"]) == "com.acme.lib.utils.StringUtils"
 
 
+def test_find_by_path_maps_file_to_concept(tmp_path: Path):
+    _make_tree(tmp_path)
+    src = CodeSource(tmp_path)
+    f = tmp_path / "src/main/java/com/acme/lib/utils/StringUtils.java"
+    ref = src.find_by_path(f)
+    assert ref is not None and ref.id_str == "utils/StringUtils"
+    # Unknown / non-documented path -> None.
+    assert src.find_by_path(tmp_path / "src/main/java/com/acme/lib/Nope.java") is None
+
+
 def test_build_api_block_preserves_static_and_skips_private(tmp_path: Path):
     _make_tree(tmp_path)
     src = CodeSource(tmp_path)
