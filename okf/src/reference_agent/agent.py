@@ -68,14 +68,16 @@ def build_bq_agent(model: str = DEFAULT_MODEL, language: str = "English") -> Age
 
 
 def build_code_agent(model: str = DEFAULT_MODEL, language: str = "English") -> Agent:
+    # Deliberately lean toolset: only read the target concept and write it.
+    # list_concepts / read_existing_doc let weaker models wander into reading
+    # many neighbor concepts (bloating context and turns) and cross-links are
+    # added deterministically by the relationship overlay, so they are omitted.
     return Agent(
         name="okf_code_reference_agent",
         model=resolve_agent_model(model),
         instruction=_localize(_load_prompt("code_instruction.md"), language),
         tools=[
-            FunctionTool(list_concepts),
             FunctionTool(read_concept_raw),
-            FunctionTool(read_existing_doc),
             FunctionTool(write_concept_doc),
         ],
     )

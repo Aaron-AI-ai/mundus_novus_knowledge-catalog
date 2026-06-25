@@ -34,6 +34,11 @@ from reference_agent.tools.context import (
 
 log = logging.getLogger(__name__)
 
+# A concept normally needs ~4 tool calls (read_existing_doc, read_concept_raw,
+# list_concepts, write_concept_doc). This cap bounds a turn where the model
+# keeps reading without ever writing; the repair pass then tells it to write.
+_MAX_TOOL_CALLS_PER_TURN = 6
+
 _BQ_APP_NAME = "reference_agent_bq"
 _WEB_APP_NAME = "reference_agent_web"
 _USER_ID = "enricher"
@@ -120,6 +125,21 @@ def _log_event_parts(event, prefix: str, *, verbose: bool) -> str | None:
             else:
                 log.info("[%s] ✎ %s", prefix, _compact_text(stripped))
     return last_text
+
+
+def _is_successful_write(event) -> bool:
+    """True if this event carries a successful write_concept_doc response (a
+    'path', no 'error'). The pinned-concept guard guarantees only the expected
+    concept can succeed, so this reliably signals 'document saved'."""
+    if not event.content or not event.content.parts:
+        return False
+    for part in event.content.parts:
+        fr = getattr(part, "function_response", None)
+        if fr and getattr(fr, "name", None) == "write_concept_doc":
+            resp = getattr(fr, "response", None)
+            if isinstance(resp, dict) and resp.get("path") and not resp.get("error"):
+                return True
+    return False
 
 
 def _tool_call_names(event) -> list[str]:
@@ -248,12 +268,31 @@ class ReferenceRunner:
         """Run one model turn (which may span several tool calls) and return a
         Counter of the tool names the model actually invoked."""
         counts: Counter = Counter()
+        tool_calls = 0
         for event in self._bq_runner.run(
             user_id=_USER_ID, session_id=session_id, new_message=message
         ):
-            for name in _tool_call_names(event):
+            names = _tool_call_names(event)
+            tool_calls += len(names)
+            for name in names:
                 counts[name] += 1
             _log_event_parts(event, prefix, verbose=self.verbose)
+            # Stop as soon as the document is saved. Small models often keep
+            # re-calling write_concept_doc after a successful write (ignoring
+            # "call exactly once"), which otherwise loops for hours.
+            if _is_successful_write(event):
+                log.debug("[%s] document written; ending turn early", prefix)
+                break
+            # Bound a turn that keeps reading without ever writing. Some models
+            # loop on read_concept_raw/list_concepts and never call
+            # write_concept_doc; cap the calls and let the repair pass tell the
+            # model to write now.
+            if tool_calls >= _MAX_TOOL_CALLS_PER_TURN:
+                log.warning(
+                    "[%s] tool-call cap (%d) reached without a write; ending turn",
+                    prefix, _MAX_TOOL_CALLS_PER_TURN,
+                )
+                break
         return counts
 
     def enrich_concept(self, ref: ConceptRef) -> None:

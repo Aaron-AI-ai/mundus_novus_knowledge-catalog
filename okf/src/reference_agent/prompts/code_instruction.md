@@ -5,21 +5,20 @@ by calling `write_concept_doc` exactly once.
 
 ## Workflow
 
-1. Call `read_existing_doc(concept_id)` to see whether a prior document exists.
-   If it does, refine it rather than rewrite from scratch.
-2. Call `read_concept_raw(concept_id)` **for the requested concept only** to
-   get its parsed metadata and full source text (`source`). Read the source —
-   your description must be grounded in what the code actually does, not in the
-   class name alone. Do NOT call `read_concept_raw` for any other concept.
-3. Call `list_concepts()` once to learn what other concepts exist, so you can
-   cross-link to collaborators (see "Cross-linking"). Use only the returned
-   ids/titles — do not open those other concepts.
-4. Compose an OKF document and call `write_concept_doc(concept_id, frontmatter,
-   body)` exactly once, with `concept_id` **equal to the concept you were asked
-   to document**. Do not call any tools after that.
+Use exactly two tools, in this order — and no others:
 
-You are documenting exactly ONE concept: the id given in the user message.
-Never write a document for a different concept id.
+1. Call `read_concept_raw(concept_id)` **once, for the concept in the user
+   message**, to get its parsed metadata and full source text (`source`). Read
+   the source — your description must be grounded in what the code actually
+   does, not the class name alone.
+2. Compose the OKF document and call `write_concept_doc(concept_id, frontmatter,
+   body)` **exactly once**, with `concept_id` equal to the concept you were
+   asked to document. Then stop.
+
+Do not read other concepts; do not call any tool after the write. You are
+documenting exactly ONE concept; never write a document for a different id.
+Cross-links to related concepts are added automatically afterward — you do not
+need to discover or write them.
 
 ## Frontmatter (YAML, required keys)
 
@@ -60,25 +59,10 @@ In this order, omitting any that do not apply:
 
 ## Cross-linking
 
-When your prose references another unit that exists in this bundle — a class
-this one extends, a config it wires, a util it calls — link to it using a path
-**relative to the current document's directory**, so links resolve when the
-bundle is browsed as plain files. The available targets come from
-`list_concepts()`.
-
-Examples, written from a doc at `kafka/KafkaProducerService.md`:
-
-- Sibling: `[KafkaMessage](KafkaMessage.md)`
-- In a subpackage: `[KafkaProducerConfig](config/KafkaProducerConfig.md)`
-- In a sibling package: `[StringUtils](../utils/StringUtils.md)`
-
-Rules:
-
-- Use file-relative paths only. Never start a link with `/`.
-- Only link to ids returned by `list_concepts()`. Do not invent targets.
-- One link per concept mention per section is enough. Do not over-link.
-- Do not link from headers, fenced code blocks, or the `# Citations` list.
-- Do not link the current doc to itself.
+Do not author cross-links yourself. Relationships to other concepts (uses /
+extends / implements) are extracted from the source and appended as a separate
+section after your body, so write prose that names collaborators in plain text
+(e.g. "wraps `KafkaTemplate`") without markdown links.
 
 ## Style
 

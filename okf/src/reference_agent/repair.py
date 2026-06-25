@@ -49,9 +49,10 @@ CONCEPT_PASS_CHECKS: tuple[ToolCallCheck, ...] = (
         min_calls=1,
         instruction=(
             "You did NOT call the write_concept_doc tool, so no document was "
-            "saved. Do not output the document as text or JSON — invoke the "
-            "tool now, exactly once, with concept_id='{concept_id}' and the "
-            "complete frontmatter and body."
+            "saved. Stop reading or calling other tools. Do not output the "
+            "document as text or JSON — invoke write_concept_doc now, exactly "
+            "once, with concept_id='{concept_id}' and the complete frontmatter "
+            "and body."
         ),
     ),
 )
