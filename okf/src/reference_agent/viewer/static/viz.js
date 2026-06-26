@@ -152,6 +152,10 @@
 
     document.getElementById("detail-title").textContent = data.label;
     document.getElementById("detail-id").textContent = conceptId;
+    // Keep the URL hash in sync so the current concept is shareable / linkable.
+    try {
+      history.replaceState(null, "", "#" + encodeURIComponent(conceptId));
+    } catch (_) {}
     document.getElementById("detail-description").textContent = data.description || "—";
 
     const resourceEl = document.getElementById("detail-resource");
@@ -185,7 +189,7 @@
     const html = marked.parse(body, { breaks: false, gfm: true });
     const bodyEl = document.getElementById("detail-body");
     bodyEl.innerHTML = html;
-    rewriteInternalLinks(bodyEl);
+    rewriteInternalLinks(bodyEl, conceptId);
 
     const bl = backlinks[conceptId] || [];
     const blSection = document.getElementById("detail-backlinks");
@@ -213,21 +217,41 @@
     cy.animate({ center: { eles: node }, zoom: Math.max(cy.zoom(), 1.0) }, { duration: 200 });
   }
 
-  function rewriteInternalLinks(root) {
+  // Resolve a markdown link's href to a concept id, supporting both
+  // bundle-absolute ("/a/b.md") and document-relative ("../a/b.md") forms.
+  // Returns null when the href is not an in-bundle .md link.
+  function resolveConceptHref(href, currentId) {
+    if (!href || href.includes("://") || !href.endsWith(".md")) return null;
+    const path = href.slice(0, -3); // drop ".md"
+    let parts;
+    if (path.startsWith("/")) {
+      parts = path.slice(1).split("/"); // relative to bundle root
+    } else {
+      // relative to the current concept's directory
+      parts = currentId.split("/").slice(0, -1).concat(path.split("/"));
+    }
+    const out = [];
+    for (const p of parts) {
+      if (p === "" || p === ".") continue;
+      if (p === "..") { out.pop(); continue; }
+      out.push(p);
+    }
+    return out.join("/");
+  }
+
+  function rewriteInternalLinks(root, currentId) {
     root.querySelectorAll("a[href]").forEach((a) => {
       const href = a.getAttribute("href");
       if (!href) return;
-      if (href.startsWith("/") && href.endsWith(".md")) {
-        const target = href.slice(1, -3);
-        if (nodeIndex[target]) {
-          a.className = "internal";
-          a.setAttribute("href", "javascript:void(0)");
-          a.addEventListener("click", (e) => {
-            e.preventDefault();
-            showDetail(target);
-          });
-          return;
-        }
+      const target = resolveConceptHref(href, currentId);
+      if (target && nodeIndex[target]) {
+        a.className = "internal";
+        a.setAttribute("href", "javascript:void(0)");
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          showDetail(target);
+        });
+        return;
       }
       a.className = "external";
       a.setAttribute("target", "_blank");
@@ -235,9 +259,22 @@
     });
   }
 
-  // Auto-show the first node (a dataset if available, else first concept)
-  const initial =
-    bundle.nodes.find((n) => n.data.type === "BigQuery Dataset") ||
-    bundle.nodes[0];
+  // Deep link: prefer a server-provided initial concept, then the URL hash,
+  // then a sensible default (a dataset if present, else the first concept).
+  const hashId = decodeURIComponent((location.hash || "").replace(/^#/, ""));
+  const initialId =
+    (window.OKF_INITIAL && nodeIndex[window.OKF_INITIAL] && window.OKF_INITIAL) ||
+    (hashId && nodeIndex[hashId] && hashId) ||
+    null;
+  const initial = initialId
+    ? { data: { id: initialId } }
+    : bundle.nodes.find((n) => n.data.type === "BigQuery Dataset") ||
+      bundle.nodes[0];
   if (initial) showDetail(initial.data.id);
+
+  // Support back/forward navigation between concepts via the hash.
+  window.addEventListener("hashchange", () => {
+    const id = decodeURIComponent((location.hash || "").replace(/^#/, ""));
+    if (id && nodeIndex[id]) showDetail(id);
+  });
 })();

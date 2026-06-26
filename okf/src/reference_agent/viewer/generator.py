@@ -136,6 +136,33 @@ def _load_asset(name: str) -> str:
     return asset_path.read_text(encoding="utf-8")
 
 
+def render_visualization_html(
+    bundle_root: Path,
+    *,
+    bundle_name: str | None = None,
+    initial_concept: str | None = None,
+) -> str:
+    """Walk a bundle and return the self-contained visualization HTML as a
+    string (no file written). Reads the bundle fresh on every call, so a live
+    server can reflect on-disk changes between requests. `initial_concept`, when
+    given, opens the viewer focused on that concept id (used for deep links)."""
+    bundle_root = Path(bundle_root)
+    if not bundle_root.is_dir():
+        raise FileNotFoundError(f"Bundle directory not found: {bundle_root}")
+
+    concepts = _walk_concepts(bundle_root)
+    graph = _build_graph(concepts)
+    name = bundle_name or bundle_root.resolve().name
+    return (
+        _load_template()
+        .replace("/*__VIZ_CSS__*/", _load_asset("viz.css"))
+        .replace("/*__VIZ_JS__*/", _load_asset("viz.js"))
+        .replace("__BUNDLE_NAME__", json.dumps(name))
+        .replace("__INITIAL_CONCEPT__", json.dumps(initial_concept))
+        .replace("__BUNDLE_DATA__", json.dumps(graph))
+    )
+
+
 def generate_visualization(
     bundle_root: Path,
     out_path: Path,
@@ -146,30 +173,15 @@ def generate_visualization(
 
     Returns counts: {'concepts': N, 'edges': M, 'bytes': K}.
     """
-    bundle_root = Path(bundle_root)
     out_path = Path(out_path)
-    if not bundle_root.is_dir():
-        raise FileNotFoundError(f"Bundle directory not found: {bundle_root}")
-
-    concepts = _walk_concepts(bundle_root)
-    graph = _build_graph(concepts)
-    template = _load_template()
-    css = _load_asset("viz.css")
-    js = _load_asset("viz.js")
-    name = bundle_name or bundle_root.resolve().name
-
-    html = (
-        template
-        .replace("/*__VIZ_CSS__*/", css)
-        .replace("/*__VIZ_JS__*/", js)
-        .replace("__BUNDLE_NAME__", json.dumps(name))
-        .replace("__BUNDLE_DATA__", json.dumps(graph))
-    )
+    html = render_visualization_html(bundle_root, bundle_name=bundle_name)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")
 
+    # Re-walk is cheap; report counts for the CLI summary.
+    concepts = _walk_concepts(Path(bundle_root))
     return {
         "concepts": len(concepts),
-        "edges": len(graph["edges"]),
+        "edges": len(_build_graph(concepts)["edges"]),
         "bytes": len(html.encode("utf-8")),
     }

@@ -312,6 +312,27 @@ def _parser() -> argparse.ArgumentParser:
         "--name", default=None,
         help="Display name for the bundle (default: bundle directory name).",
     )
+
+    serve = sub.add_parser(
+        "serve",
+        help="Run a live web service for an OKF bundle (graph + docs + search), "
+        "reading the bundle fresh on each request.",
+    )
+    serve.add_argument(
+        "--bundle", required=True, type=Path,
+        help="Path to the bundle root directory.",
+    )
+    serve.add_argument(
+        "--host", default="0.0.0.0",
+        help="Bind address (default: 0.0.0.0 — reachable on the network).",
+    )
+    serve.add_argument(
+        "--port", type=int, default=8000, help="Port (default: 8000).",
+    )
+    serve.add_argument(
+        "--name", default=None,
+        help="Display name for the bundle (default: bundle directory name).",
+    )
     return p
 
 
@@ -326,6 +347,13 @@ def main(argv: list[str] | None = None) -> int:
     # Quiet chatty third-party loggers regardless of mode.
     for noisy in ("google", "google_genai", "google_adk", "urllib3", "httpx"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    if args.command == "serve":
+        from reference_agent.server import serve as run_server
+        run_server(
+            args.bundle, host=args.host, port=args.port, bundle_name=args.name
+        )
+        return 0
 
     if args.command == "visualize":
         from reference_agent.viewer import generate_visualization
